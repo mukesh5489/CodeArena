@@ -116,6 +116,9 @@ const getContestLeaderboard = async (req, res) => {
     return res.json({ success: true, data: leaderboard });
   }
 
+  return res.json({ success: true, data: [] });
+};
+
 /**
  * GET /api/contests/:id/export
  * Exports complete contest rankings and results to CSV/Excel format
