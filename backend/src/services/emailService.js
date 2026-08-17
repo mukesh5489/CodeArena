@@ -1,0 +1,93 @@
+/**
+ * emailService.js – Transactional & Broadcast Email Dispatcher
+ *
+ * Uses Nodemailer with Gmail SMTP (saimukesh363@gmail.com)
+ * Supports:
+ *  - Broadcast announcements to all registered users
+ *  - Contest registration confirmations
+ *  - Reminder notifications
+ */
+
+const nodemailer = require('nodemailer');
+const config = require('../config/app');
+
+// Create reusable transporter object using Gmail SMTP
+let transporter = null;
+
+if (config.smtpUser && config.smtpPass) {
+  transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: config.smtpUser.replace(/\s+/g, ''),
+      pass: config.smtpPass.replace(/\s+/g, ''), // remove any internal spaces from app password
+    },
+  });
+}
+
+/**
+ * Send an email to a single recipient
+ */
+async function sendMail({ to, subject, html, text }) {
+  if (!transporter) {
+    console.log(`\n📧 [EMAIL SIMULATED - No SMTP configured] To: ${to} | Subject: "${subject}"`);
+    return { success: true, simulated: true };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: `"CodeArena" <${config.smtpUser}>`,
+      to,
+      subject,
+      text: text || subject,
+      html,
+    });
+    return { success: true, messageId: info.messageId };
+  } catch (err) {
+    console.error(`❌ Email dispatch error to ${to}:`, err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Send contest registration confirmation email
+ */
+async function sendContestRegistrationEmail({ userEmail, userName, contestTitle, startTime }) {
+  const subject = `Registration Confirmed: ${contestTitle} | CodeArena`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background-color: #0a0f1e; color: #f1f5f9; padding: 32px; border-radius: 16px; border: 1px solid #1e2d4a;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #3b82f6; font-size: 28px; margin: 0; font-weight: 800;">CodeArena</h1>
+        <p style="color: #94a3b8; font-size: 14px; margin-top: 4px;">Competitive Programming Platform</p>
+      </div>
+
+      <div style="background-color: #111827; border-radius: 12px; padding: 24px; border: 1px solid #1e2d4a; margin-bottom: 24px;">
+        <h2 style="color: #ffffff; font-size: 20px; margin-top: 0;">Hi ${userName}, you're registered! 🚀</h2>
+        <p style="color: #cbd5e1; font-size: 14px; line-height: 1.6;">
+          You have successfully registered for <strong>${contestTitle}</strong>.
+        </p>
+
+        <div style="background-color: #0d1527; padding: 16px; border-radius: 8px; border-left: 4px solid #3b82f6; margin: 16px 0;">
+          <p style="margin: 0; font-size: 13px; color: #94a3b8;">Contest Start Time:</p>
+          <p style="margin: 4px 0 0 0; font-size: 15px; font-weight: 600; color: #f1f5f9;">${startTime}</p>
+        </div>
+
+        <ul style="color: #94a3b8; font-size: 13px; line-height: 1.8; padding-left: 20px;">
+          <li>Allowed Languages: Python 3, C++ (GCC), Java (OpenJDK)</li>
+          <li>Each wrong submission before acceptance incurs a 10-minute penalty.</li>
+          <li>Make sure you are logged in 5 minutes prior to the start time.</li>
+        </ul>
+      </div>
+
+      <p style="text-align: center; color: #64748b; font-size: 12px; margin-top: 24px;">
+        CodeArena Platform • Good luck with your competition!
+      </p>
+    </div>
+  `;
+
+  return sendMail({ to: userEmail, subject, html });
+}
+
+module.exports = {
+  sendMail,
+  sendContestRegistrationEmail,
+};
