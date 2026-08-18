@@ -22,6 +22,7 @@ import { Button, Badge, Select, Alert, Spinner } from '../components/ui';
 import { useTheme } from '../context/ThemeContext';
 import { getProblem } from '../services/problemService';
 import { runCode, submitCode } from '../services/submissionService';
+import AiAssistantModal from '../components/ai/AiAssistantModal';
 
 export default function ProblemDetailPage() {
   const { id } = useParams();
@@ -37,6 +38,7 @@ export default function ProblemDetailPage() {
   const [evalResult, setEvalResult] = useState(null);
   const [selectedCaseIdx, setSelectedCaseIdx] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
 
   // Default starter templates
   const starterTemplates = {
@@ -348,6 +350,15 @@ public class Solution {
 
             <div className="flex items-center gap-2.5">
               <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setAiModalOpen(true)}
+                icon={<Sparkles size={13} className="text-amber-400" />}
+                className="border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20"
+              >
+                AI Mentor
+              </Button>
+              <Button
                 variant="outline"
                 size="sm"
                 onClick={handleRun}
@@ -526,6 +537,15 @@ public class Solution {
           )}
         </div>
       </div>
+
+      {/* Google Gemini AI Mentor Modal */}
+      <AiAssistantModal
+        isOpen={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        problem={currentProblem}
+        userCode={code}
+        language={language}
+      />
     </div>
   );
 }

@@ -27,6 +27,7 @@ const submissionRoutes = require('./routes/submissions');
 const notificationRoutes = require('./routes/notifications');
 const userRoutes      = require('./routes/users');
 const adminRoutes     = require('./routes/admin');
+const aiRoutes        = require('./routes/ai');
 const { errorHandler } = require('./middleware/errorHandler');
 
 const app = express();
@@ -103,6 +104,7 @@ app.use('/api/submissions',   submissionRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/users',         userRoutes);
 app.use('/api/admin',         adminRoutes);
+app.use('/api/ai',            aiRoutes);
 
 // Direct aliases (in case requests arrive without /api prefix)
 app.use('/health',            healthRoutes);
@@ -113,6 +115,7 @@ app.use('/submissions',       submissionRoutes);
 app.use('/notifications',     notificationRoutes);
 app.use('/users',             userRoutes);
 app.use('/admin',             adminRoutes);
+app.use('/ai',                aiRoutes);
 
 // Root route – helpful when someone opens the backend URL in a browser
 app.get('/', (req, res) => {

@@ -29,6 +29,9 @@ const config = {
   // Gmail SMTP – email service
   smtpUser: process.env.SMTP_USER || 'saimukesh363@gmail.com',
   smtpPass: process.env.SMTP_PASS || 'ehtt jkmx vqij ovbf',
+
+  // Google Gemini AI
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
 };
 
 

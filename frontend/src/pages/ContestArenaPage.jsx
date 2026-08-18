@@ -23,6 +23,7 @@ import { Button, Badge, Select, Card, Alert, Spinner } from '../components/ui';
 import { useTheme } from '../context/ThemeContext';
 import { getContestProblems } from '../services/contestService';
 import { runCode, submitCode } from '../services/submissionService';
+import AiAssistantModal from '../components/ai/AiAssistantModal';
 
 export default function ContestArenaPage() {
   const { id } = useParams();
@@ -42,6 +43,7 @@ export default function ContestArenaPage() {
   // MCQ state
   const [selectedMcqOption, setSelectedMcqOption] = useState(null);
   const [mcqResult, setMcqResult] = useState(null);
+  const [aiModalOpen, setAiModalOpen] = useState(false);
 
   // Live Timer countdown (45 mins demo)
   const [secondsRemaining, setSecondsRemaining] = useState(45 * 60);
@@ -426,6 +428,15 @@ public class Solution {
 
                 <div className="flex items-center gap-2.5">
                   <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setAiModalOpen(true)}
+                    icon={<Sparkles size={13} className="text-amber-400" />}
+                    className="border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20"
+                  >
+                    AI Mentor
+                  </Button>
+                  <Button
                     variant="outline"
                     size="sm"
                     onClick={handleRun}
@@ -547,6 +558,15 @@ public class Solution {
           )}
         </div>
       )}
+
+      {/* Google Gemini AI Mentor Modal */}
+      <AiAssistantModal
+        isOpen={aiModalOpen}
+        onClose={() => setAiModalOpen(false)}
+        problem={activeProblem}
+        userCode={code}
+        language={language}
+      />
     </div>
   );
 }
