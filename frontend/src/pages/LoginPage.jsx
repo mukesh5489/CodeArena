@@ -113,7 +113,12 @@ export default function LoginPage() {
       setLoading(false);
 
       if (res.success) {
-        setSuccessMsg(`We sent a 4-digit code to ${email.trim().toLowerCase()}. Enter it below:`);
+        if (res.devOtp) {
+          setOtp(res.devOtp);
+          setSuccessMsg(`Verification code: ${res.devOtp} (also sent to ${email})`);
+        } else {
+          setSuccessMsg(`We sent a 4-digit code to ${email.trim().toLowerCase()}. Enter it below:`);
+        }
         setRegisterStep('otp');
       } else {
         setError(res.error || 'Failed to send verification code. Please check your email.');

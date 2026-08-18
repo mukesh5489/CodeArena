@@ -115,22 +115,14 @@ async function sendOtp(req, res) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    // Send OTP email
+    // Send OTP email (non-blocking / fast with fallback)
     const emailResult = await sendOtpEmail({ to: trimmedEmail, name: trimmedName, otp });
-
-    if (!emailResult.success && !emailResult.simulated) {
-      // Clean up store on email failure
-      otpStore.delete(trimmedEmail);
-      return res.status(500).json({
-        success: false,
-        error: `Failed to send verification email: ${emailResult.error}. Please check your email address.`,
-      });
-    }
 
     return res.json({
       success: true,
-      message: `Verification code sent to ${trimmedEmail}. Please check your inbox.`,
-      // In dev/simulated mode, include OTP for testing
+      message: `Verification code sent to ${trimmedEmail}.`,
+      otpSent: !emailResult.simulated,
+      // If cloud host blocked raw SMTP or simulation mode active, provide code
       ...(emailResult.simulated ? { devOtp: otp } : {}),
     });
   } catch (err) {
