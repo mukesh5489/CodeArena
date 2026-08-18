@@ -120,9 +120,9 @@ export default function LoginPage() {
         setError(res.error || 'Failed to send verification code. Please check your email.');
       }
     } else if (registerStep === 'otp') {
-      // Registration Step 2: Verify 4-digit OTP and create user
-      if (!otp.trim() || otp.trim().length !== 4) {
-        setError('Please enter the 4-digit verification code sent to your email.');
+      // Registration Step 2: Verify OTP and create user
+      if (!otp.trim() || otp.trim().length < 4) {
+        setError('Please enter the verification code sent to your email.');
         return;
       }
 
@@ -336,15 +336,15 @@ export default function LoginPage() {
 
                 <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-theme-muted">
-                    Enter 4-Digit Code
+                    Enter Verification Code
                   </label>
                   <input
                     type="text"
-                    maxLength={4}
+                    maxLength={6}
                     value={otp}
                     onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="• • • •"
-                    className="w-full text-center text-3xl font-mono font-black tracking-[16px] py-3.5 bg-theme-surface border-2 border-blue-500/50 rounded-xl text-theme-main focus:border-blue-500 focus:outline-none"
+                    placeholder="Enter Code"
+                    className="w-full text-center text-2xl sm:text-3xl font-mono font-black tracking-[10px] py-3.5 bg-theme-surface border-2 border-blue-500/50 rounded-xl text-theme-main focus:border-blue-500 focus:outline-none"
                     autoFocus
                   />
                 </div>
@@ -354,7 +354,7 @@ export default function LoginPage() {
                   size="lg"
                   type="submit"
                   loading={loading}
-                  disabled={otp.length !== 4}
+                  disabled={otp.length < 4}
                   className="w-full"
                 >
                   Verify & Enter CodeArena

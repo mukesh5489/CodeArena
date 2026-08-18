@@ -115,16 +115,25 @@ async function sendOtp(req, res) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    // Send OTP email directly via Gmail SSL
-    const emailResult = await sendOtpEmail({ to: trimmedEmail, name: trimmedName, otp });
-
-    if (!emailResult.success) {
-      console.warn(`[OTP Warning] Email dispatch error: ${emailResult.error}`);
+    // 1. Dispatch OTP via Supabase Auth HTTPS (Port 443 - zero cloud port blocks)
+    let supabaseSent = false;
+    if (isConfigured && supabase) {
+      try {
+        const sbRes = await supabase.auth.signInWithOtp({ email: trimmedEmail });
+        if (!sbRes.error) supabaseSent = true;
+      } catch (sbErr) {
+        console.warn('Supabase HTTPS OTP dispatch note:', sbErr.message);
+      }
     }
+
+    // 2. Also dispatch via Gmail SMTP in background
+    sendOtpEmail({ to: trimmedEmail, name: trimmedName, otp }).catch((err) => {
+      console.warn('SMTP fallback note:', err.message);
+    });
 
     return res.json({
       success: true,
-      message: `A 4-digit verification code has been sent to ${trimmedEmail}. Please check your inbox or spam folder.`,
+      message: `A verification code has been sent to ${trimmedEmail}. Please check your inbox or spam folder.`,
     });
   } catch (err) {
     console.error('Send OTP Error:', err);
@@ -152,34 +161,44 @@ async function verifyOtp(req, res) {
     }
 
     const trimmedEmail = email.trim().toLowerCase();
+    const cleanOtp = String(otp).trim();
     const stored = otpStore.get(trimmedEmail);
 
-    if (!stored) {
-      return res.status(400).json({
-        success: false,
-        error: 'No pending verification found for this email. Please restart registration.',
-      });
+    let isValid = false;
+
+    // Check custom OTP store
+    if (stored && Date.now() <= stored.expiresAt && stored.otp === cleanOtp) {
+      isValid = true;
     }
 
-    if (Date.now() > stored.expiresAt) {
-      otpStore.delete(trimmedEmail);
-      return res.status(400).json({
-        success: false,
-        error: 'Verification code has expired. Please register again.',
-      });
+    // Check Supabase Auth HTTPS OTP if not matched yet
+    if (!isValid && isConfigured && supabase) {
+      try {
+        const { data: verifyData, error: verifyErr } = await supabase.auth.verifyOtp({
+          email: trimmedEmail,
+          token: cleanOtp,
+          type: 'email',
+        });
+        if (!verifyErr && verifyData?.user) {
+          isValid = true;
+        }
+      } catch (sbErr) {
+        console.warn('Supabase OTP verify error:', sbErr.message);
+      }
     }
 
-    if (stored.otp !== String(otp).trim()) {
+    if (!isValid) {
       return res.status(400).json({
         success: false,
-        error: 'Incorrect verification code. Please try again.',
+        error: 'Invalid or expired verification code. Please check your email and try again.',
       });
     }
 
     // OTP is valid — create the user
-    otpStore.delete(trimmedEmail);
+    if (stored) otpStore.delete(trimmedEmail);
 
-    const avatar_url = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(stored.name)}`;
+    const userName = stored?.name || trimmedEmail.split('@')[0];
+    const avatar_url = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userName)}`;
     let user = null;
 
     if (isConfigured && supabase) {
