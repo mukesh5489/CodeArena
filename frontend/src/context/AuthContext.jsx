@@ -3,6 +3,8 @@ import {
   getMe,
   loginUser as apiLoginUser,
   registerUser as apiRegisterUser,
+  sendOtpApi as apiSendOtp,
+  verifyOtpApi as apiVerifyOtp,
 } from '../services/authService';
 
 const AuthContext = createContext(null);
@@ -71,7 +73,37 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Register (student only)
+  // Send 4-digit registration OTP
+  const sendOtp = async (name, email, password) => {
+    setLoading(true);
+    try {
+      const res = await apiSendOtp({ name, email, password });
+      return res;
+    } catch (err) {
+      return { success: false, error: err.response?.data?.error || err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Verify OTP and complete registration
+  const verifyOtp = async (email, otp) => {
+    setLoading(true);
+    try {
+      const res = await apiVerifyOtp({ email, otp });
+      if (res.success && res.data) {
+        handleSetSession(res.data.token, res.data.user);
+        return { success: true, user: res.data.user };
+      }
+      return { success: false, error: res.error || 'Verification failed' };
+    } catch (err) {
+      return { success: false, error: err.response?.data?.error || err.message };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Register (student direct fallback)
   const register = async (name, email, password) => {
     setLoading(true);
     try {
@@ -99,6 +131,8 @@ export const AuthProvider = ({ children }) => {
     isAdmin: user?.role === 'ADMIN',
     login,
     register,
+    sendOtp,
+    verifyOtp,
     logout,
   };
 

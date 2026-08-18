@@ -5,7 +5,25 @@
 import api from './api';
 
 /**
- * Register a new user with Name, Email & Password
+ * Send 4-digit OTP to user email for new registration
+ * @param {Object} payload - { name, email, password }
+ */
+export const sendOtpApi = async (payload) => {
+  const res = await api.post('/auth/send-otp', payload);
+  return res.data;
+};
+
+/**
+ * Verify 4-digit OTP and complete registration
+ * @param {Object} payload - { email, otp }
+ */
+export const verifyOtpApi = async (payload) => {
+  const res = await api.post('/auth/verify-otp', payload);
+  return res.data;
+};
+
+/**
+ * Register a new user with Name, Email & Password (direct fallback)
  * @param {Object} payload - { name, email, password }
  */
 export const registerUser = async (payload) => {

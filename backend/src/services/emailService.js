@@ -3,6 +3,7 @@
  *
  * Uses Nodemailer with Gmail SMTP (saimukesh363@gmail.com)
  * Supports:
+ *  - OTP verification emails for new user registration
  *  - Broadcast announcements to all registered users
  *  - Contest registration confirmations
  *  - Reminder notifications
@@ -11,18 +12,27 @@
 const nodemailer = require('nodemailer');
 const config = require('../config/app');
 
-// Create reusable transporter object using Gmail SMTP
+// Create reusable transporter object using Gmail SMTP with explicit port 587
 let transporter = null;
 
-if (config.smtpUser && config.smtpPass) {
-  transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: config.smtpUser.replace(/\s+/g, ''),
-      pass: config.smtpPass.replace(/\s+/g, ''), // remove any internal spaces from app password
+function createTransporter() {
+  const user = (config.smtpUser || '').replace(/\s+/g, '');
+  const pass = (config.smtpPass || '').replace(/\s+/g, '');
+
+  if (!user || !pass) return null;
+
+  return nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // STARTTLS
+    auth: { user, pass },
+    tls: {
+      rejectUnauthorized: false,
     },
   });
 }
+
+transporter = createTransporter();
 
 /**
  * Send an email to a single recipient
@@ -35,17 +45,50 @@ async function sendMail({ to, subject, html, text }) {
 
   try {
     const info = await transporter.sendMail({
-      from: `"CodeArena" <${config.smtpUser}>`,
+      from: `"CodeArena" <${(config.smtpUser || '').replace(/\s+/g, '')}>`,
       to,
       subject,
       text: text || subject,
       html,
     });
+    console.log(`✅ Email sent to ${to}: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (err) {
     console.error(`❌ Email dispatch error to ${to}:`, err.message);
     return { success: false, error: err.message };
   }
+}
+
+/**
+ * Send a 4-digit OTP verification email to a new registrant
+ */
+async function sendOtpEmail({ to, name, otp }) {
+  const subject = `${otp} — Your CodeArena Verification Code`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; background-color: #0a0f1e; color: #f1f5f9; padding: 36px; border-radius: 16px; border: 1px solid #1e2d4a;">
+      <div style="text-align: center; margin-bottom: 28px;">
+        <h1 style="color: #3b82f6; font-size: 26px; margin: 0; font-weight: 900; letter-spacing: -0.5px;">CodeArena</h1>
+        <p style="color: #64748b; font-size: 13px; margin-top: 4px;">Competitive Programming Platform</p>
+      </div>
+
+      <div style="background-color: #111827; border-radius: 12px; padding: 28px; border: 1px solid #1e2d4a; text-align: center;">
+        <p style="color: #94a3b8; font-size: 14px; margin: 0 0 8px 0;">Hi <strong style="color:#f1f5f9;">${name}</strong>, use this code to verify your email</p>
+
+        <div style="display: inline-block; margin: 20px auto; background: linear-gradient(135deg, #1e3a8a, #2563eb); border-radius: 12px; padding: 20px 40px; letter-spacing: 12px;">
+          <span style="font-size: 40px; font-weight: 900; color: #ffffff; font-family: 'Courier New', monospace;">${otp}</span>
+        </div>
+
+        <p style="color: #64748b; font-size: 12px; margin: 16px 0 0 0;">This code expires in <strong style="color:#f59e0b;">10 minutes</strong>. Don't share it with anyone.</p>
+      </div>
+
+      <p style="text-align: center; color: #475569; font-size: 12px; margin-top: 24px;">
+        If you didn't request this, you can safely ignore this email.<br/>
+        © CodeArena Platform
+      </p>
+    </div>
+  `;
+
+  return sendMail({ to, subject, html });
 }
 
 /**
@@ -89,5 +132,6 @@ async function sendContestRegistrationEmail({ userEmail, userName, contestTitle,
 
 module.exports = {
   sendMail,
+  sendOtpEmail,
   sendContestRegistrationEmail,
 };

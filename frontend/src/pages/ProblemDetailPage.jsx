@@ -40,6 +40,11 @@ export default function ProblemDetailPage() {
   const [copied, setCopied] = useState(false);
   const [aiModalOpen, setAiModalOpen] = useState(false);
 
+  // MCQ state
+  const [selectedMcqOption, setSelectedMcqOption] = useState(null);
+  const [mcqResult, setMcqResult] = useState(null);
+  const [isMcqSubmitting, setIsMcqSubmitting] = useState(false);
+
   // Default starter templates
   const starterTemplates = {
     python: `# Write your solution below
@@ -85,6 +90,7 @@ public class Solution {
   useEffect(() => {
     const fetchProblemData = async () => {
       setLoading(true);
+      setError(null);
       try {
         const res = await getProblem(id || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
         if (res?.data) {
@@ -92,7 +98,7 @@ public class Solution {
           setCode(starterTemplates[language]);
         }
       } catch (err) {
-        setError('Failed to load problem details.');
+        console.warn('Failed to load problem details, using fallback problem');
       } finally {
         setLoading(false);
       }
@@ -105,6 +111,31 @@ public class Solution {
     setCode(starterTemplates[language] || '');
     setEvalResult(null);
   }, [language]);
+
+  const handleMcqSubmit = async () => {
+    if (!selectedMcqOption) return;
+    setIsMcqSubmitting(true);
+    try {
+      const res = await submitCode({
+        problem_id: problem?.id || id,
+        language: 'mcq',
+        source_code: selectedMcqOption,
+      });
+      if (res?.data) {
+        setMcqResult({
+          passed: res.data.passed,
+          message: res.data.passed ? '🎉 Correct Answer! Score recorded.' : '❌ Incorrect answer. Try again!',
+        });
+      }
+    } catch (err) {
+      setMcqResult({
+        passed: false,
+        message: 'Submission error: ' + (err.response?.data?.error || err.message),
+      });
+    } finally {
+      setIsMcqSubmitting(false);
+    }
+  };
 
   const handleRun = async () => {
     setIsRunning(true);
@@ -322,84 +353,153 @@ public class Solution {
           )}
         </div>
 
-        {/* Right Panel: Editor + Results Console Drawer */}
-        <div className="w-full lg:w-7/12 flex flex-col bg-theme-surface overflow-hidden">
-          {/* Controls Header */}
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-theme bg-theme-card flex-wrap gap-2">
-            <div className="flex items-center gap-2">
-              <div className="w-40">
-                <Select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  options={[
-                    { value: 'python', label: 'Python 3' },
-                    { value: 'cpp', label: 'C++ (GCC)' },
-                    { value: 'java', label: 'Java (OpenJDK)' },
-                  ]}
-                />
+        {/* Right Panel: Editor or MCQ Quiz Interface */}
+        {currentProblem.type === 'MCQ' ? (
+          <div className="w-full lg:w-7/12 flex flex-col bg-theme-surface p-6 sm:p-8 justify-between overflow-y-auto">
+            <div className="space-y-6 max-w-xl">
+              <div className="flex items-center justify-between">
+                <Badge variant="purple" size="md">Multiple Choice Question</Badge>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setAiModalOpen(true)}
+                  icon={<Sparkles size={13} className="text-amber-400" />}
+                  className="border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20"
+                >
+                  AI Mentor
+                </Button>
               </div>
-              <button
-                type="button"
-                onClick={handleResetCode}
-                className="p-2 rounded-xl border border-theme bg-theme-surface text-theme-muted hover:text-theme-main transition-colors cursor-pointer"
-                title="Reset code template"
-              >
-                <RotateCcw size={14} />
-              </button>
-            </div>
 
-            <div className="flex items-center gap-2.5">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => setAiModalOpen(true)}
-                icon={<Sparkles size={13} className="text-amber-400" />}
-                className="border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20"
-              >
-                AI Mentor
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleRun}
-                loading={isRunning}
-                disabled={isSubmitting}
-                icon={<Play size={13} />}
-              >
-                Run Code
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleSubmit}
-                loading={isSubmitting}
-                disabled={isRunning}
-                icon={<Send size={13} />}
-              >
-                Submit Solution
-              </Button>
+              <div className="space-y-3">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-theme-muted">
+                  Select the best answer:
+                </h3>
+                <div className="space-y-3">
+                  {(currentProblem.options || [
+                    { id: 'opt-1', option_text: 'Option A' },
+                    { id: 'opt-2', option_text: 'Option B' },
+                    { id: 'opt-3', option_text: 'Option C' },
+                    { id: 'opt-4', option_text: 'Option D' },
+                  ]).map((opt) => (
+                    <label
+                      key={opt.id}
+                      className={`flex items-center gap-3.5 p-4 rounded-xl border text-sm cursor-pointer transition-all ${
+                        selectedMcqOption === opt.id
+                          ? 'border-blue-500 bg-blue-500/10 text-theme-main font-bold shadow-md shadow-blue-500/10'
+                          : 'border-theme bg-theme-card text-theme-muted hover:border-blue-500/40 hover:text-theme-main'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="mcq-option"
+                        checked={selectedMcqOption === opt.id}
+                        onChange={() => setSelectedMcqOption(opt.id)}
+                        className="text-blue-600 focus:ring-blue-500 h-4 w-4"
+                      />
+                      <span>{opt.option_text || opt.text}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={handleMcqSubmit}
+                  disabled={!selectedMcqOption || isMcqSubmitting}
+                  loading={isMcqSubmitting}
+                  className="w-full sm:w-auto px-8"
+                >
+                  Submit Answer
+                </Button>
+              </div>
+
+              {mcqResult && (
+                <Alert variant={mcqResult.passed ? 'success' : 'error'}>
+                  {mcqResult.message}
+                </Alert>
+              )}
             </div>
           </div>
+        ) : (
+          <div className="w-full lg:w-7/12 flex flex-col bg-theme-surface overflow-hidden">
+            {/* Controls Header */}
+            <div className="flex items-center justify-between px-4 py-2.5 border-b border-theme bg-theme-card flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-40">
+                  <Select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    options={[
+                      { value: 'python', label: 'Python 3' },
+                      { value: 'cpp', label: 'C++ (GCC)' },
+                      { value: 'java', label: 'Java (OpenJDK)' },
+                    ]}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetCode}
+                  className="p-2 rounded-xl border border-theme bg-theme-surface text-theme-muted hover:text-theme-main transition-colors cursor-pointer"
+                  title="Reset code template"
+                >
+                  <RotateCcw size={14} />
+                </button>
+              </div>
 
-          {/* Monaco Code Editor */}
-          <div className="flex-1 min-h-[280px]">
-            <Editor
-              height="100%"
-              language={language === 'cpp' ? 'cpp' : language === 'java' ? 'java' : 'python'}
-              theme={isDark ? 'vs-dark' : 'light'}
-              value={code}
-              onChange={(val) => setCode(val || '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                tabSize: 4,
-                automaticLayout: true,
-                scrollBeyondLastLine: false,
-                padding: { top: 12, bottom: 12 },
-              }}
-            />
-          </div>
+              <div className="flex items-center gap-2.5">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setAiModalOpen(true)}
+                  icon={<Sparkles size={13} className="text-amber-400" />}
+                  className="border-indigo-500/30 bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20"
+                >
+                  AI Mentor
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRun}
+                  loading={isRunning}
+                  disabled={isSubmitting}
+                  icon={<Play size={13} />}
+                >
+                  Run Code
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSubmit}
+                  loading={isSubmitting}
+                  disabled={isRunning}
+                  icon={<Send size={13} />}
+                >
+                  Submit Solution
+                </Button>
+              </div>
+            </div>
+
+            {/* Monaco Code Editor */}
+            <div className="flex-1 min-h-[280px]">
+              <Editor
+                height="100%"
+                language={language === 'cpp' ? 'cpp' : language === 'java' ? 'java' : 'python'}
+                theme={isDark ? 'vs-dark' : 'light'}
+                value={code}
+                onChange={(val) => setCode(val || '')}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                  tabSize: 4,
+                  automaticLayout: true,
+                  scrollBeyondLastLine: false,
+                  padding: { top: 12, bottom: 12 },
+                }}
+              />
+            </div>
 
           {/* Sandboxed Execution Console Output Drawer */}
           {evalResult && (
@@ -536,6 +636,7 @@ public class Solution {
             </div>
           )}
         </div>
+      )}
       </div>
 
       {/* Google Gemini AI Mentor Modal */}

@@ -10,24 +10,31 @@ import {
   Eye,
   EyeOff,
   Shield,
+  KeyRound,
+  RotateCcw,
   Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { Button, Input, Alert, Badge, Card } from '../components/ui';
 
 export default function LoginPage() {
-  const { login, register, isAuthenticated, user } = useAuth();
+  const { login, sendOtp, verifyOtp, register, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState('login'); // 'login' | 'register'
+  const [registerStep, setRegisterStep] = useState('details'); // 'details' | 'otp'
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [otp, setOtp] = useState('');
+
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [successMsg, setSuccessMsg] = useState(null);
 
   const from = location.state?.from?.pathname || '/dashboard';
 
@@ -73,35 +80,86 @@ export default function LoginPage() {
     );
   }
 
+  // Handle Form Submit
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
+    setSuccessMsg(null);
 
-    if (mode === 'register') {
-      if (!name.trim()) { setError('Please enter your full name.'); return; }
-      if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
-      if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
-
-      setLoading(true);
-      const res = await register(name, email, password);
-      setLoading(false);
-      if (res.success) navigate(from, { replace: true });
-      else setError(res.error);
-    } else {
-      if (!email.trim() || !password) { setError('Please enter your email and password.'); return; }
+    if (mode === 'login') {
+      // Direct Login (No OTP required for sign in)
+      if (!email.trim() || !password) {
+        setError('Please enter your email and password.');
+        return;
+      }
 
       setLoading(true);
       const res = await login(email, password);
       setLoading(false);
-      if (res.success) navigate(from, { replace: true });
-      else setError(res.error);
+      if (res.success) {
+        navigate(from, { replace: true });
+      } else {
+        setError(res.error);
+      }
+    } else if (registerStep === 'details') {
+      // Registration Step 1: Validate details and send 4-digit OTP to user's email
+      if (!name.trim()) { setError('Please enter your full name.'); return; }
+      if (!email.trim()) { setError('Please enter your email address.'); return; }
+      if (password !== confirmPassword) { setError('Passwords do not match.'); return; }
+      if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
+
+      setLoading(true);
+      const res = await sendOtp(name, email, password);
+      setLoading(false);
+
+      if (res.success) {
+        setSuccessMsg(`We sent a 4-digit code to ${email.trim().toLowerCase()}. Enter it below:`);
+        setRegisterStep('otp');
+      } else {
+        setError(res.error || 'Failed to send verification code. Please check your email.');
+      }
+    } else if (registerStep === 'otp') {
+      // Registration Step 2: Verify 4-digit OTP and create user
+      if (!otp.trim() || otp.trim().length !== 4) {
+        setError('Please enter the 4-digit verification code sent to your email.');
+        return;
+      }
+
+      setLoading(true);
+      const res = await verifyOtp(email, otp.trim());
+      setLoading(false);
+
+      if (res.success) {
+        navigate(from, { replace: true });
+      } else {
+        setError(res.error || 'Invalid verification code. Please try again.');
+      }
+    }
+  };
+
+  const handleResendOtp = async () => {
+    setError(null);
+    setSuccessMsg(null);
+    setLoading(true);
+    const res = await sendOtp(name, email, password);
+    setLoading(false);
+    if (res.success) {
+      setSuccessMsg(`A new 4-digit code was sent to ${email}.`);
+    } else {
+      setError(res.error || 'Failed to resend code.');
     }
   };
 
   const handleSwitch = (m) => {
     setMode(m);
+    setRegisterStep('details');
     setError(null);
-    setName(''); setEmail(''); setPassword(''); setConfirmPassword('');
+    setSuccessMsg(null);
+    setName('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setOtp('');
   };
 
   return (
@@ -113,12 +171,18 @@ export default function LoginPage() {
             <Code2 size={28} className="text-white" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-theme-main tracking-tight">
-            {mode === 'login' ? 'Welcome Back' : 'Create Account'}
+            {mode === 'login'
+              ? 'Welcome Back'
+              : registerStep === 'otp'
+              ? 'Verify Email'
+              : 'Create Account'}
           </h1>
           <p className="text-xs sm:text-sm text-theme-sub">
             {mode === 'login'
               ? 'Sign in to access your CodeArena challenges and contests.'
-              : 'Register to join the CodeArena platform.'}
+              : registerStep === 'otp'
+              ? `Enter the 4-digit code sent to ${email}`
+              : 'Enter your details. A 4-digit verification code will be sent to your email.'}
           </p>
         </div>
 
@@ -144,76 +208,177 @@ export default function LoginPage() {
         </div>
 
         {error && (
-          <Alert variant="error" title="Authentication Error" onClose={() => setError(null)}>
+          <Alert variant="error" title="Error" onClose={() => setError(null)}>
             {error}
+          </Alert>
+        )}
+
+        {successMsg && (
+          <Alert variant="success" title="Success" onClose={() => setSuccessMsg(null)}>
+            {successMsg}
           </Alert>
         )}
 
         {/* Main Card Form */}
         <Card className="p-6 sm:p-8 space-y-5">
           <form onSubmit={handleSubmit} className="space-y-4">
-            {mode === 'register' && (
-              <Input
-                label="Full Name"
-                placeholder="e.g. Mukesh Kumar"
-                icon={<User size={15} />}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
+            {mode === 'login' ? (
+              /* ─── Sign In Form (Direct Email + Password, No OTP) ─── */
+              <>
+                <Input
+                  label="Email Address"
+                  type="email"
+                  placeholder="you@email.com"
+                  icon={<Mail size={15} />}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+
+                <div className="relative">
+                  <Input
+                    label="Password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    icon={<Lock size={15} />}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-8 text-theme-muted hover:text-theme-main transition-colors cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+
+                <Button
+                  variant="primary"
+                  size="lg"
+                  type="submit"
+                  loading={loading}
+                  className="w-full mt-2"
+                >
+                  Sign In to Account
+                </Button>
+              </>
+            ) : registerStep === 'details' ? (
+              /* ─── Registration Step 1: User Info ─── */
+              <>
+                <Input
+                  label="Full Name"
+                  placeholder="e.g. Mukesh Kumar"
+                  icon={<User size={15} />}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
+
+                <Input
+                  label="Email Address"
+                  type="email"
+                  placeholder="you@email.com"
+                  icon={<Mail size={15} />}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                />
+
+                <div className="relative">
+                  <Input
+                    label="Password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    icon={<Lock size={15} />}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    helperText="Minimum 6 characters"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-8 text-theme-muted hover:text-theme-main transition-colors cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+
+                <Input
+                  label="Confirm Password"
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  icon={<Lock size={15} />}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                />
+
+                <Button
+                  variant="primary"
+                  size="lg"
+                  type="submit"
+                  loading={loading}
+                  className="w-full mt-2"
+                >
+                  Create Student Account
+                </Button>
+              </>
+            ) : (
+              /* ─── Registration Step 2: 4-Digit OTP Input ─── */
+              <div className="space-y-5 text-center">
+                <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-xs text-blue-400 text-left">
+                  📩 A 4-digit confirmation code was sent to <span className="font-bold text-white">{email}</span>. Please enter it below to finish creating your account.
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-theme-muted">
+                    Enter 4-Digit Code
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+                    placeholder="• • • •"
+                    className="w-full text-center text-3xl font-mono font-black tracking-[16px] py-3.5 bg-theme-surface border-2 border-blue-500/50 rounded-xl text-theme-main focus:border-blue-500 focus:outline-none"
+                    autoFocus
+                  />
+                </div>
+
+                <Button
+                  variant="primary"
+                  size="lg"
+                  type="submit"
+                  loading={loading}
+                  disabled={otp.length !== 4}
+                  className="w-full"
+                >
+                  Verify & Enter CodeArena
+                </Button>
+
+                <div className="flex items-center justify-between text-xs pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRegisterStep('details')}
+                    className="text-theme-muted hover:text-theme-main underline cursor-pointer"
+                  >
+                    ← Edit Details
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={loading}
+                    className="text-blue-500 hover:text-blue-400 font-semibold cursor-pointer"
+                  >
+                    Resend Code
+                  </button>
+                </div>
+              </div>
             )}
-
-            <Input
-              label="Email Address"
-              type="email"
-              placeholder="you@email.com"
-              icon={<Mail size={15} />}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-
-            <div className="relative">
-              <Input
-                label="Password"
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
-                icon={<Lock size={15} />}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                helperText={mode === 'register' ? 'Minimum 6 characters' : undefined}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-8 text-theme-muted hover:text-theme-main transition-colors cursor-pointer"
-              >
-                {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-
-            {mode === 'register' && (
-              <Input
-                label="Confirm Password"
-                type={showPassword ? 'text' : 'password'}
-                placeholder="••••••••"
-                icon={<Lock size={15} />}
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                required
-              />
-            )}
-
-            <Button
-              variant="primary"
-              size="lg"
-              type="submit"
-              loading={loading}
-              className="w-full mt-2"
-            >
-              {mode === 'login' ? 'Sign In to Account' : 'Create Student Account'}
-            </Button>
           </form>
 
           <p className="text-center text-xs text-theme-muted pt-4 border-t border-theme">

@@ -4,7 +4,9 @@
  * ADMIN ACCOUNT: admin2026@gmail.com / admin@2026 (hardcoded, locked)
  * All other accounts are regular students registered via email + password.
  *
- * POST /api/auth/register    – Register as a student (no admin access)
+ * POST /api/auth/send-otp    – Send 4-digit OTP to email for new registration
+ * POST /api/auth/verify-otp  – Verify OTP and create account
+ * POST /api/auth/register    – Register as a student (no OTP, legacy)
  * POST /api/auth/login       – Sign in with email + password
  * GET  /api/auth/me          – Current user session details
  * POST /api/auth/logout      – Sign out
@@ -14,10 +16,15 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { supabase, isConfigured } = require('../database/supabase');
 const config = require('../config/app');
+const { sendOtpEmail } = require('../services/emailService');
 
 // ─── Hardcoded Admin Credentials (ONLY these credentials get Admin access) ───
 const ADMIN_EMAIL = 'admin2026@gmail.com';
 const ADMIN_PASSWORD = 'admin@2026';
+
+// ─── In-memory OTP store (survives for duration of server process) ─────────
+// Format: { [email]: { otp, name, password_hash, expiresAt } }
+const otpStore = new Map();
 
 /**
  * Generate a signed JWT token
@@ -34,6 +41,214 @@ function generateToken(user) {
     config.jwtSecret,
     { expiresIn: config.jwtExpiresIn || '7d' }
   );
+}
+
+/**
+ * POST /api/auth/send-otp
+ * Body: { name, email, password }
+ * Generates a 4-digit OTP, stores it temporarily, sends to email
+ */
+async function sendOtp(req, res) {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please provide full name, email address, and a password.',
+      });
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedName = name.trim();
+
+    // Block admin email
+    if (trimmedEmail === ADMIN_EMAIL) {
+      return res.status(403).json({
+        success: false,
+        error: 'This email is reserved. Please use a different email address.',
+      });
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please enter a valid email address.',
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password must be at least 6 characters long.',
+      });
+    }
+
+    // Check if email already registered
+    if (isConfigured && supabase) {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', trimmedEmail)
+        .single();
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          error: 'An account with this email already exists. Please sign in instead.',
+        });
+      }
+    }
+
+    // Generate 4-digit OTP
+    const otp = String(Math.floor(1000 + Math.random() * 9000));
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(password, salt);
+
+    // Store OTP (10 minute expiry)
+    otpStore.set(trimmedEmail, {
+      otp,
+      name: trimmedName,
+      password_hash,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+
+    // Send OTP email
+    const emailResult = await sendOtpEmail({ to: trimmedEmail, name: trimmedName, otp });
+
+    if (!emailResult.success && !emailResult.simulated) {
+      // Clean up store on email failure
+      otpStore.delete(trimmedEmail);
+      return res.status(500).json({
+        success: false,
+        error: `Failed to send verification email: ${emailResult.error}. Please check your email address.`,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `Verification code sent to ${trimmedEmail}. Please check your inbox.`,
+      // In dev/simulated mode, include OTP for testing
+      ...(emailResult.simulated ? { devOtp: otp } : {}),
+    });
+  } catch (err) {
+    console.error('Send OTP Error:', err);
+    return res.status(500).json({
+      success: false,
+      error: `Failed to send OTP: ${err.message}`,
+    });
+  }
+}
+
+/**
+ * POST /api/auth/verify-otp
+ * Body: { email, otp }
+ * Verifies OTP and creates the user account
+ */
+async function verifyOtp(req, res) {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please provide your email and the verification code.',
+      });
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const stored = otpStore.get(trimmedEmail);
+
+    if (!stored) {
+      return res.status(400).json({
+        success: false,
+        error: 'No pending verification found for this email. Please restart registration.',
+      });
+    }
+
+    if (Date.now() > stored.expiresAt) {
+      otpStore.delete(trimmedEmail);
+      return res.status(400).json({
+        success: false,
+        error: 'Verification code has expired. Please register again.',
+      });
+    }
+
+    if (stored.otp !== String(otp).trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Incorrect verification code. Please try again.',
+      });
+    }
+
+    // OTP is valid — create the user
+    otpStore.delete(trimmedEmail);
+
+    const avatar_url = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(stored.name)}`;
+    let user = null;
+
+    if (isConfigured && supabase) {
+      let insertPayload = {
+        name: stored.name,
+        email: trimmedEmail,
+        password_hash: stored.password_hash,
+        avatar_url,
+        role: 'USER',
+      };
+
+      let { data: newUser, error } = await supabase
+        .from('users')
+        .insert(insertPayload)
+        .select('id, name, email, avatar_url, role')
+        .single();
+
+      if (error && error.message?.includes('password_hash')) {
+        delete insertPayload.password_hash;
+        const retry = await supabase
+          .from('users')
+          .insert(insertPayload)
+          .select('id, name, email, avatar_url, role')
+          .single();
+        newUser = retry.data;
+        error = retry.error;
+      }
+
+      if (error) {
+        if (error.code === '23505') {
+          return res.status(409).json({
+            success: false,
+            error: 'An account with this email already exists. Please sign in instead.',
+          });
+        }
+        throw error;
+      }
+
+      user = newUser;
+    } else {
+      user = {
+        id: `user_${Date.now()}`,
+        name: stored.name,
+        email: trimmedEmail,
+        avatar_url,
+        role: 'USER',
+      };
+    }
+
+    const token = generateToken(user);
+    return res.status(201).json({
+      success: true,
+      message: `Welcome to CodeArena, ${stored.name}! Your account has been verified and created.`,
+      data: { token, user },
+    });
+  } catch (err) {
+    console.error('Verify OTP Error:', err);
+    return res.status(500).json({
+      success: false,
+      error: `Verification failed: ${err.message}`,
+    });
+  }
 }
 
 /**
@@ -100,13 +315,12 @@ async function register(req, res) {
         });
       }
 
-      // Try inserting with password_hash first, fallback if column not yet in schema
       let insertPayload = {
         name: trimmedName,
         email: trimmedEmail,
         password_hash,
         avatar_url,
-        role: 'USER', // students are always USER, admin is hardcoded only
+        role: 'USER',
       };
 
       let { data: newUser, error } = await supabase
@@ -116,7 +330,6 @@ async function register(req, res) {
         .single();
 
       if (error && error.message?.includes('password_hash')) {
-        // Column not added yet in Supabase — insert without it
         delete insertPayload.password_hash;
         const retry = await supabase
           .from('users')
@@ -166,9 +379,6 @@ async function register(req, res) {
 /**
  * POST /api/auth/login
  * Body: { email, password }
- *
- * Admin: admin2026@gmail.com / admin@2026 → verified locally, no DB password needed
- * Students: Verified via bcrypt password_hash in Supabase
  */
 async function login(req, res) {
   try {
@@ -192,7 +402,6 @@ async function login(req, res) {
         });
       }
 
-      // Fetch admin from DB or use fallback
       let adminUser = null;
       if (isConfigured && supabase) {
         const { data } = await supabase
@@ -213,7 +422,6 @@ async function login(req, res) {
         };
       }
 
-      // Ensure role is always ADMIN (safety)
       adminUser.role = 'ADMIN';
 
       const token = generateToken(adminUser);
@@ -239,7 +447,6 @@ async function login(req, res) {
         });
       }
 
-      // Verify password if hash exists
       if (dbUser.password_hash) {
         const isMatch = await bcrypt.compare(password, dbUser.password_hash);
         if (!isMatch) {
@@ -250,13 +457,12 @@ async function login(req, res) {
         }
       }
 
-      // Students can never be ADMIN (even if someone manually set the role)
       const user = {
         id: dbUser.id,
         name: dbUser.name,
         email: dbUser.email,
         avatar_url: dbUser.avatar_url,
-        role: 'USER', // Always USER for student login
+        role: 'USER',
       };
 
       const token = generateToken(user);
@@ -295,7 +501,6 @@ async function getMe(req, res) {
     const userId = req.user.id;
     let profile = { ...req.user };
 
-    // Always force admin role for admin email
     if (profile.email === ADMIN_EMAIL) {
       profile.role = 'ADMIN';
     }
@@ -309,7 +514,6 @@ async function getMe(req, res) {
 
       if (dbUser) {
         profile = { ...profile, ...dbUser };
-        // Restore role safety: only admin email gets ADMIN
         profile.role = profile.email === ADMIN_EMAIL ? 'ADMIN' : 'USER';
       }
 
@@ -335,4 +539,4 @@ function logout(req, res) {
   return res.json({ success: true, message: 'Logged out successfully.' });
 }
 
-module.exports = { register, login, getMe, logout };
+module.exports = { sendOtp, verifyOtp, register, login, getMe, logout };
