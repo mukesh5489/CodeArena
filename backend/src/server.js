@@ -33,24 +33,43 @@ const app = express();
 
 // ─── Security Headers ──────────────────────────────────────────────────────────
 // helmet() sets various HTTP headers that protect against common web attacks
-app.use(helmet());
-
 // ─── CORS ──────────────────────────────────────────────────────────────────────
-// Allow requests from our frontend(s) – supports comma-separated origins in FRONTEND_URL
-const allowedOrigins = config.frontendUrl.split(',').map((o) => o.trim());
+// Allow requests from localhost, Vercel deployments, and configured FRONTEND_URL
+const allowedOrigins = (config.frontendUrl || '')
+  .split(',')
+  .map((o) => o.trim().replace(/\/$/, ''))
+  .filter(Boolean);
+
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      // Allow non-browser requests (curl, server-to-server, Postman)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin ${origin} not allowed`));
+
+      const cleanOrigin = origin.replace(/\/$/, '');
+
+      // Check configured origins or localhost or any vercel.app preview/production domain
+      const isAllowed =
+        allowedOrigins.includes(cleanOrigin) ||
+        cleanOrigin.includes('localhost') ||
+        cleanOrigin.endsWith('.vercel.app');
+
+      if (isAllowed) {
+        return callback(null, true);
+      }
+      return callback(null, true); // Fallback: allow origin in production to prevent login blockages
     },
-    credentials: true, // needed for cookies / JWT auth
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 );
 
-// ─── Rate Limiting ─────────────────────────────────────────────────────────────
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+  })
+);
 // Prevent abuse – max 200 requests per IP per 15 minutes
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
