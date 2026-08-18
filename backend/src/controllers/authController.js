@@ -115,21 +115,16 @@ async function sendOtp(req, res) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    // 1. Dispatch OTP via Supabase Auth HTTPS (Port 443 - zero cloud port blocks)
-    let supabaseSent = false;
-    if (isConfigured && supabase) {
-      try {
-        const sbRes = await supabase.auth.signInWithOtp({ email: trimmedEmail });
-        if (!sbRes.error) supabaseSent = true;
-      } catch (sbErr) {
-        console.warn('Supabase HTTPS OTP dispatch note:', sbErr.message);
-      }
-    }
+    // 1. Dispatch OTP via Resend HTTP API / Gmail SMTP
+    const emailRes = await sendOtpEmail({ to: trimmedEmail, name: trimmedName, otp });
+    console.log(`[OTP DISPATCH RESULT] To: ${trimmedEmail} | Result:`, emailRes);
 
-    // 2. Also dispatch via Gmail SMTP in background
-    sendOtpEmail({ to: trimmedEmail, name: trimmedName, otp }).catch((err) => {
-      console.warn('SMTP fallback note:', err.message);
-    });
+    // 2. Also trigger Supabase Auth HTTPS OTP
+    if (isConfigured && supabase) {
+      supabase.auth.signInWithOtp({ email: trimmedEmail }).catch((sbErr) => {
+        console.warn('Supabase HTTPS OTP dispatch note:', sbErr.message);
+      });
+    }
 
     return res.json({
       success: true,

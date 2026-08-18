@@ -1,12 +1,20 @@
 /**
  * emailService.js – Transactional & Broadcast Email Dispatcher
  *
- * Uses Nodemailer with Gmail SMTP (saimukesh363@gmail.com)
- * High-reliability direct delivery for OTPs and notifications.
+ * Supports:
+ * 1. Resend HTTP REST API (Port 443 - Recommended for Render, 100% unblocked & <1s delivery)
+ * 2. Gmail SMTP (Direct SSL Port 465 for localhost/unrestricted servers)
  */
 
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const config = require('../config/app');
+
+// Initialize Resend client if API key is provided
+let resendClient = null;
+if (config.resendApiKey || process.env.RESEND_API_KEY) {
+  resendClient = new Resend(config.resendApiKey || process.env.RESEND_API_KEY);
+}
 
 // Create reusable transporter object using direct Gmail SSL (Port 465)
 let transporter = null;
@@ -22,9 +30,9 @@ function getTransporter() {
     port: 465,
     secure: true, // SSL
     auth: { user, pass },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 20000,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
 
   return transporter;
@@ -34,8 +42,30 @@ function getTransporter() {
  * Send an email to a single recipient
  */
 async function sendMail({ to, subject, html, text }) {
-  const user = (config.smtpUser || 'saimukesh363@gmail.com').replace(/\s+/g, '');
+  // 1. Try Resend HTTP API (Port 443 - Fast & Unblocked on Render)
+  const resendKey = config.resendApiKey || process.env.RESEND_API_KEY;
+  if (resendKey) {
+    try {
+      if (!resendClient) resendClient = new Resend(resendKey);
+      const res = await resendClient.emails.send({
+        from: 'CodeArena <onboarding@resend.dev>',
+        to: [to],
+        subject,
+        html,
+        text: text || subject,
+      });
 
+      if (res.data?.id) {
+        console.log(`✅ [RESEND EMAIL DELIVERED] To: ${to} | ID: ${res.data.id}`);
+        return { success: true, messageId: res.data.id, provider: 'resend' };
+      }
+    } catch (resendErr) {
+      console.warn(`⚠️ [RESEND ERROR] To: ${to} | Error: ${resendErr.message}`);
+    }
+  }
+
+  // 2. Try Gmail SMTP
+  const user = (config.smtpUser || 'saimukesh363@gmail.com').replace(/\s+/g, '');
   try {
     const t = getTransporter();
     const info = await t.sendMail({
@@ -45,11 +75,11 @@ async function sendMail({ to, subject, html, text }) {
       text: text || subject,
       html,
     });
-    console.log(`✅ [EMAIL SENT] To: ${to} | ID: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
-  } catch (err) {
-    console.error(`❌ [EMAIL ERROR] To: ${to} | Error: ${err.message}`);
-    return { success: false, error: err.message };
+    console.log(`✅ [SMTP EMAIL DELIVERED] To: ${to} | ID: ${info.messageId}`);
+    return { success: true, messageId: info.messageId, provider: 'smtp' };
+  } catch (smtpErr) {
+    console.error(`❌ [SMTP ERROR] To: ${to} | Error: ${smtpErr.message}`);
+    return { success: false, error: smtpErr.message };
   }
 }
 
@@ -66,7 +96,7 @@ async function sendOtpEmail({ to, name, otp }) {
       </div>
 
       <div style="background-color: #111827; border-radius: 12px; padding: 28px; border: 1px solid #1e2d4a; text-align: center;">
-        <p style="color: #94a3b8; font-size: 14px; margin: 0 0 8px 0;">Hi <strong style="color:#f1f5f9;">${name}</strong>, here is your account verification code:</p>
+        <p style="color: #94a3b8; font-size: 14px; margin: 0 0 8px 0;">Hi <strong style="color:#f1f5f9;">${name}</strong>, enter this code to verify your account:</p>
 
         <div style="display: inline-block; margin: 20px auto; background: linear-gradient(135deg, #1e3a8a, #2563eb); border-radius: 12px; padding: 18px 36px; letter-spacing: 12px;">
           <span style="font-size: 38px; font-weight: 900; color: #ffffff; font-family: 'Courier New', monospace;">${otp}</span>
