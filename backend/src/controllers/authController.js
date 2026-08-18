@@ -115,15 +115,16 @@ async function sendOtp(req, res) {
       expiresAt: Date.now() + 10 * 60 * 1000,
     });
 
-    // Send OTP email (non-blocking / fast with fallback)
+    // Send OTP email directly via Gmail SSL
     const emailResult = await sendOtpEmail({ to: trimmedEmail, name: trimmedName, otp });
+
+    if (!emailResult.success) {
+      console.warn(`[OTP Warning] Email dispatch error: ${emailResult.error}`);
+    }
 
     return res.json({
       success: true,
-      message: `Verification code sent to ${trimmedEmail}.`,
-      otpSent: !emailResult.simulated,
-      // If cloud host blocked raw SMTP or simulation mode active, provide code
-      ...(emailResult.simulated ? { devOtp: otp } : {}),
+      message: `A 4-digit verification code has been sent to ${trimmedEmail}. Please check your inbox or spam folder.`,
     });
   } catch (err) {
     console.error('Send OTP Error:', err);

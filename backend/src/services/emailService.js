@@ -2,62 +2,54 @@
  * emailService.js – Transactional & Broadcast Email Dispatcher
  *
  * Uses Nodemailer with Gmail SMTP (saimukesh363@gmail.com)
- * Resilient to cloud host SMTP restrictions (e.g. Render / AWS blocks)
+ * High-reliability direct delivery for OTPs and notifications.
  */
 
 const nodemailer = require('nodemailer');
 const config = require('../config/app');
 
-// Create reusable transporter object using Gmail SMTP with connection pooling & fast 3s timeouts
-function createTransporter() {
+// Create reusable transporter object using direct Gmail SSL (Port 465)
+let transporter = null;
+
+function getTransporter() {
+  if (transporter) return transporter;
+
   const user = (config.smtpUser || 'saimukesh363@gmail.com').replace(/\s+/g, '');
   const pass = (config.smtpPass || 'ehttjkmxvqijovbf').replace(/\s+/g, '');
 
-  if (!user || !pass) return null;
-
-  return nodemailer.createTransport({
-    service: 'gmail',
+  transporter = nodemailer.createTransport({
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // SSL
     auth: { user, pass },
-    connectionTimeout: 4000,
-    greetingTimeout: 4000,
-    socketTimeout: 5000,
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
   });
+
+  return transporter;
 }
 
 /**
- * Send an email with 5-second max wait and graceful simulated fallback
+ * Send an email to a single recipient
  */
 async function sendMail({ to, subject, html, text }) {
   const user = (config.smtpUser || 'saimukesh363@gmail.com').replace(/\s+/g, '');
-  const pass = (config.smtpPass || 'ehttjkmxvqijovbf').replace(/\s+/g, '');
-
-  if (!user || !pass) {
-    console.log(`\n📧 [EMAIL SIMULATED] To: ${to} | Subject: "${subject}"`);
-    return { success: true, simulated: true };
-  }
 
   try {
-    const transporter = createTransporter();
-    
-    // Race with a 4.5 second timeout so cloud servers never hang
-    const sendPromise = transporter.sendMail({
+    const t = getTransporter();
+    const info = await t.sendMail({
       from: `"CodeArena" <${user}>`,
       to,
       subject,
       text: text || subject,
       html,
     });
-
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Cloud SMTP connection timeout')), 4500)
-    );
-
-    const info = await Promise.race([sendPromise, timeoutPromise]);
-    console.log(`✅ Email delivered to ${to}: ${info.messageId}`);
+    console.log(`✅ [EMAIL SENT] To: ${to} | ID: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (err) {
-    console.warn(`⚠️ Cloud SMTP note for ${to} (${err.message}) - Falling back gracefully.`);
-    return { success: true, simulated: true, error: err.message };
+    console.error(`❌ [EMAIL ERROR] To: ${to} | Error: ${err.message}`);
+    return { success: false, error: err.message };
   }
 }
 
@@ -74,7 +66,7 @@ async function sendOtpEmail({ to, name, otp }) {
       </div>
 
       <div style="background-color: #111827; border-radius: 12px; padding: 28px; border: 1px solid #1e2d4a; text-align: center;">
-        <p style="color: #94a3b8; font-size: 14px; margin: 0 0 8px 0;">Hi <strong style="color:#f1f5f9;">${name}</strong>, enter this code to verify your account:</p>
+        <p style="color: #94a3b8; font-size: 14px; margin: 0 0 8px 0;">Hi <strong style="color:#f1f5f9;">${name}</strong>, here is your account verification code:</p>
 
         <div style="display: inline-block; margin: 20px auto; background: linear-gradient(135deg, #1e3a8a, #2563eb); border-radius: 12px; padding: 18px 36px; letter-spacing: 12px;">
           <span style="font-size: 38px; font-weight: 900; color: #ffffff; font-family: 'Courier New', monospace;">${otp}</span>
@@ -129,7 +121,7 @@ async function sendContestRegistrationEmail({ userEmail, userName, contestTitle,
     </div>
   `;
 
-  return sendMail({ to, subject, html });
+  return sendMail({ to: userEmail, subject, html });
 }
 
 module.exports = {
