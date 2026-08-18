@@ -320,6 +320,23 @@ const createProblem = async (req, res) => {
       }
     }
 
+    // Automatically notify all registered users about the new challenge
+    try {
+      const { data: allUsers } = await supabase.from('users').select('id');
+      if (allUsers && allUsers.length > 0) {
+        const notifs = allUsers.map((u) => ({
+          user_id: u.id,
+          title: `⚡ New Challenge: ${title}`,
+          message: `A new ${difficulty} problem "${title}" (${topic || 'Algorithms'}) is now live in Practice Arena! Test your skills.`,
+          type: 'problem',
+          is_read: false,
+        }));
+        await supabase.from('notifications').insert(notifs);
+      }
+    } catch (notifErr) {
+      console.warn('Failed to broadcast problem notification:', notifErr.message);
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Problem and test cases saved successfully!',

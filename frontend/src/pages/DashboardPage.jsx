@@ -15,6 +15,8 @@ import {
   BookOpen,
   Shield,
   User,
+  Play,
+  Calendar,
 } from 'lucide-react';
 import {
   Button,
@@ -32,35 +34,21 @@ import { getProblems } from '../services/problemService';
 import { getContests } from '../services/contestService';
 import api from '../services/api';
 
-const TARGET_NEXT_CONTEST = Date.now() + 2 * 86400000 + 3 * 3600000;
-
-function useCountdown(target) {
-  const [t, setT] = useState({ d: 2, h: 3, m: 45, s: 0 });
-  useEffect(() => {
-    const calc = () => {
-      const diff = target - Date.now();
-      if (diff <= 0) return setT({ d: 0, h: 0, m: 0, s: 0 });
-      setT({
-        d: Math.floor(diff / 86400000),
-        h: Math.floor((diff % 86400000) / 3600000),
-        m: Math.floor((diff % 3600000) / 60000),
-        s: Math.floor((diff % 60000) / 1000),
-      });
-    };
-    calc();
-    const id = setInterval(calc, 1000);
-    return () => clearInterval(id);
-  }, [target]);
-  return t;
-}
-
 export default function DashboardPage() {
   const { user, isAdmin } = useAuth();
-  const countdown = useCountdown(TARGET_NEXT_CONTEST);
 
   const [recentSubmissions, setRecentSubmissions] = useState([]);
   const [problems, setProblems] = useState([]);
+  const [contests, setContests] = useState([]);
   const [loadingData, setLoadingData] = useState(true);
+
+  // Live timer tick every second
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const firstName = user?.name?.split(' ')[0] || 'Coder';
   const initials = user?.name
@@ -71,9 +59,10 @@ export default function DashboardPage() {
     const loadData = async () => {
       setLoadingData(true);
       try {
-        const [probRes, subRes] = await Promise.allSettled([
+        const [probRes, subRes, contestRes] = await Promise.allSettled([
           getProblems(),
           api.get('/submissions/my').catch(() => ({ data: { data: [] } })),
+          getContests().catch(() => ({ data: [] })),
         ]);
         if (probRes.status === 'fulfilled' && probRes.value?.data) {
           setProblems(probRes.value.data.slice(0, 5));
@@ -82,6 +71,9 @@ export default function DashboardPage() {
           const subData = subRes.value?.data?.data || [];
           setRecentSubmissions(subData.slice(0, 6));
         }
+        if (contestRes.status === 'fulfilled') {
+          setContests(contestRes.value?.data || []);
+        }
       } catch (_) {
       } finally {
         setLoadingData(false);
@@ -89,6 +81,48 @@ export default function DashboardPage() {
     };
     loadData();
   }, []);
+
+  // Determine active live contest vs next upcoming contest
+  const liveContest = contests.find((c) => {
+    const s = (c.status || '').toUpperCase();
+    if (s === 'LIVE') return true;
+    if (c.start_time && c.end_time) {
+      const start = new Date(c.start_time).getTime();
+      const end = new Date(c.end_time).getTime();
+      return currentTime >= start && currentTime <= end;
+    }
+    return false;
+  });
+
+  const upcomingContests = contests
+    .filter((c) => {
+      const s = (c.status || '').toUpperCase();
+      if (s === 'COMPLETED') return false;
+      if (liveContest && c.id === liveContest.id) return false;
+      const start = c.start_time ? new Date(c.start_time).getTime() : Infinity;
+      return start > currentTime || s === 'PUBLISHED';
+    })
+    .sort((a, b) => new Date(a.start_time || 0) - new Date(b.start_time || 0));
+
+  const nextContest = liveContest || upcomingContests[0] || null;
+
+  // Calculate live countdown
+  const getCountdown = (targetDate) => {
+    if (!targetDate) return null;
+    const diff = new Date(targetDate).getTime() - currentTime;
+    if (diff <= 0) return { d: 0, h: 0, m: 0, s: 0, expired: true };
+    return {
+      d: Math.floor(diff / 86400000),
+      h: Math.floor((diff % 86400000) / 3600000),
+      m: Math.floor((diff % 3600000) / 60000),
+      s: Math.floor((diff % 60000) / 1000),
+      expired: false,
+    };
+  };
+
+  const nextContestCountdown = nextContest
+    ? getCountdown(liveContest ? nextContest.end_time : nextContest.start_time)
+    : null;
 
   const statusVariant = (s) => {
     if (s === 'Accepted') return 'easy';
@@ -125,7 +159,7 @@ export default function DashboardPage() {
             </div>
             <p className="text-xs text-theme-muted font-mono">{user?.email}</p>
             <p className="text-xs text-theme-sub">
-              {user?.solvedCount ?? 0} challenges solved • Keep building streak! 🔥
+              {user?.solvedCount ?? recentSubmissions.filter((s) => s.status === 'Accepted').length} challenges solved • Keep building streak! 🔥
             </p>
           </div>
         </div>
@@ -150,6 +184,34 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Live Contest Highlight Bar (if round is active right now) */}
+      {liveContest && (
+        <div className="rounded-3xl border border-emerald-500/40 bg-gradient-to-r from-emerald-500/10 via-emerald-500/5 to-transparent p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6 animate-pulse">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <Badge variant="live">LIVE CONTEST IN PROGRESS</Badge>
+              {nextContestCountdown && (
+                <span className="text-xs font-mono font-bold text-emerald-400">
+                  Ends in {nextContestCountdown.h}h {nextContestCountdown.m}m {nextContestCountdown.s}s
+                </span>
+              )}
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black text-theme-main">{liveContest.title}</h2>
+            <p className="text-xs sm:text-sm text-theme-sub max-w-2xl">{liveContest.description}</p>
+          </div>
+
+          <Link to={`/contests/${liveContest.id}/arena`}>
+            <Button variant="primary" size="lg" icon={<Play size={16} />} className="shadow-lg shadow-emerald-500/25 bg-emerald-600 hover:bg-emerald-500 border-none">
+              Enter Arena Now →
+            </Button>
+          </Link>
+        </div>
+      )}
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -183,15 +245,42 @@ export default function DashboardPage() {
           </span>
         </Card>
 
+        {/* Live dynamic contest card */}
         <Card className="p-6 space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-theme-muted font-bold uppercase tracking-wider">Next Contest</span>
-            <Clock size={18} className="text-amber-500" />
+            <span className="text-xs text-theme-muted font-bold uppercase tracking-wider">
+              {liveContest ? 'Live Now' : 'Next Contest'}
+            </span>
+            <Clock size={18} className={liveContest ? 'text-emerald-500 animate-pulse' : 'text-amber-500'} />
           </div>
-          <div className="text-2xl font-black text-amber-500 font-mono">
-            {countdown.d}d {countdown.h}h
-          </div>
-          <span className="text-[11px] text-theme-muted block">Weekly Sprint #14</span>
+
+          {liveContest ? (
+            <>
+              <div className="text-xl font-black text-emerald-500 font-mono">
+                {nextContestCountdown ? `${nextContestCountdown.h}h ${nextContestCountdown.m}m ${nextContestCountdown.s}s` : 'Active'}
+              </div>
+              <span className="text-[11px] text-emerald-400 font-bold truncate block">
+                {liveContest.title}
+              </span>
+            </>
+          ) : nextContest && nextContestCountdown && !nextContestCountdown.expired ? (
+            <>
+              <div className="text-2xl font-black text-amber-500 font-mono">
+                {nextContestCountdown.d > 0 ? `${nextContestCountdown.d}d ` : ''}
+                {nextContestCountdown.h}h {nextContestCountdown.m}m
+              </div>
+              <span className="text-[11px] text-theme-muted truncate block">
+                {nextContest.title}
+              </span>
+            </>
+          ) : (
+            <>
+              <div className="text-xl font-black text-theme-muted font-mono">
+                None Active
+              </div>
+              <span className="text-[11px] text-theme-muted block">Stay tuned for rounds</span>
+            </>
+          )}
         </Card>
 
         <Card className="p-6 space-y-1">
@@ -304,28 +393,34 @@ export default function DashboardPage() {
               <CardDescription>Curated challenges for your level</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {problems.map((rec) => (
-                <div
-                  key={rec.id}
-                  className="p-3.5 rounded-xl border border-theme bg-theme-surface space-y-1.5 hover:border-blue-500/40 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <Link
-                      to={`/practice/${rec.id}`}
-                      className="text-xs font-bold text-theme-main hover:text-blue-500 transition-colors block"
-                    >
-                      {rec.title}
-                    </Link>
-                    <Badge variant={(rec.difficulty || 'easy').toLowerCase()} size="sm">
-                      {rec.difficulty}
-                    </Badge>
+              {problems.length > 0 ? (
+                problems.map((rec) => (
+                  <div
+                    key={rec.id}
+                    className="p-3.5 rounded-xl border border-theme bg-theme-surface space-y-1.5 hover:border-blue-500/40 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <Link
+                        to={`/practice/${rec.id}`}
+                        className="text-xs font-bold text-theme-main hover:text-blue-500 transition-colors block"
+                      >
+                        {rec.title}
+                      </Link>
+                      <Badge variant={(rec.difficulty || 'easy').toLowerCase()} size="sm">
+                        {rec.difficulty}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-theme-muted pt-1">
+                      <span className="text-blue-500 font-semibold">{rec.topic}</span>
+                      <span className="font-mono text-amber-500 font-bold">{rec.points || 100} pts</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-theme-muted pt-1">
-                    <span className="text-blue-500 font-semibold">{rec.topic}</span>
-                    <span className="font-mono text-amber-500 font-bold">{rec.points || 100} pts</span>
-                  </div>
-                </div>
-              ))}
+                ))
+              ) : (
+                <p className="text-xs text-theme-muted py-4 text-center">
+                  Check back for new problems!
+                </p>
+              )}
               <Link to="/practice">
                 <Button variant="outline" size="sm" className="w-full mt-2">
                   Browse All Problems →

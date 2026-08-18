@@ -16,7 +16,7 @@ async function listNotifications(req, res) {
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(20);
+      .limit(30);
 
     if (error) return res.status(500).json({ success: false, error: error.message });
     return res.json({ success: true, data: data || [] });
@@ -24,15 +24,7 @@ async function listNotifications(req, res) {
 
   return res.json({
     success: true,
-    data: [
-      {
-        id: 'notif-1',
-        title: 'Contest Registration Confirmed',
-        message: 'You have registered for CodeArena Live Speed Sprint. Good luck!',
-        is_read: false,
-        created_at: new Date().toISOString(),
-      },
-    ],
+    data: [],
   });
 }
 
@@ -49,7 +41,21 @@ async function markAsRead(req, res) {
   return res.json({ success: true, message: 'Notification marked as read' });
 }
 
+/**
+ * PATCH /api/notifications/read-all
+ */
+async function markAllAsRead(req, res) {
+  const userId = req.user?.id;
+
+  if (isConfigured && supabase && userId) {
+    await supabase.from('notifications').update({ is_read: true }).eq('user_id', userId);
+  }
+
+  return res.json({ success: true, message: 'All notifications marked as read' });
+}
+
 module.exports = {
   listNotifications,
   markAsRead,
+  markAllAsRead,
 };

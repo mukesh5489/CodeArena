@@ -39,16 +39,23 @@ export default function Navbar() {
   const dropdownRef = useRef(null);
   const notifRef = useRef(null);
 
+  const [notifLoading, setNotifLoading] = useState(false);
+
+  const fetchNotifs = async () => {
+    if (!isAuthenticated) return;
+    try {
+      const res = await getNotifications();
+      if (res?.data) {
+        setNotifications(res.data);
+      }
+    } catch (_) {}
+  };
+
   useEffect(() => {
-    if (isAuthenticated) {
-      getNotifications()
-        .then((res) => {
-          if (res?.data) {
-            setNotifications(res.data);
-          }
-        })
-        .catch(() => {});
-    }
+    fetchNotifs();
+    // Live polling every 10 seconds for real-time notification alerts
+    const interval = setInterval(fetchNotifs, 10000);
+    return () => clearInterval(interval);
   }, [isAuthenticated]);
 
   // Click outside to close dropdowns
@@ -72,6 +79,13 @@ export default function Navbar() {
     setNotifications((prev) =>
       prev.map((n) => (n.id === id ? { ...n, is_read: true } : n))
     );
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await markAllNotificationsAsRead();
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    } catch (_) {}
   };
 
   const isActive = (path) => {
@@ -146,7 +160,7 @@ export default function Navbar() {
                 >
                   <Bell size={17} />
                   {unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-sm">
+                    <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white shadow-md animate-pulse">
                       {unreadCount}
                     </span>
                   )}
@@ -154,28 +168,45 @@ export default function Navbar() {
 
                 {/* Notifications Dropdown */}
                 {notifOpen && (
-                  <div className="absolute right-0 mt-2 w-80 rounded-2xl border border-theme bg-theme-card p-4 shadow-xl animate-fade-in z-50 space-y-3">
-                    <div className="flex items-center justify-between pb-2 border-b border-theme">
-                      <span className="text-xs font-bold text-theme-main">Notifications</span>
-                      <span className="text-[11px] text-theme-muted">{unreadCount} unread</span>
+                  <div className="absolute right-0 mt-2 w-88 rounded-2xl border border-theme bg-theme-card p-4 shadow-2xl animate-fade-in z-50 space-y-3">
+                    <div className="flex items-center justify-between pb-2.5 border-b border-theme">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black text-theme-main">Live Notifications</span>
+                        {unreadCount > 0 ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-blue-500/10 text-blue-500 font-bold font-mono">
+                            {unreadCount} new
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-theme-muted font-mono">All read</span>
+                        )}
+                      </div>
+                      {unreadCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={handleMarkAllRead}
+                          className="text-[10px] text-blue-500 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                        >
+                          <Check size={11} /> Mark all read
+                        </button>
+                      )}
                     </div>
 
-                    <div className="max-h-64 overflow-y-auto space-y-2 divide-y divide-theme">
+                    <div className="max-h-72 overflow-y-auto space-y-2 divide-y divide-theme">
                       {notifications.length > 0 ? (
                         notifications.map((n) => (
                           <div
                             key={n.id}
-                            className={`pt-2 text-xs space-y-1 ${
-                              n.is_read ? 'opacity-60' : 'opacity-100'
+                            className={`pt-2 text-xs space-y-1 transition-opacity ${
+                              n.is_read ? 'opacity-50 hover:opacity-80' : 'opacity-100'
                             }`}
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-theme-main">{n.title}</span>
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-bold text-theme-main leading-snug">{n.title}</span>
                               {!n.is_read && (
                                 <button
                                   type="button"
                                   onClick={() => handleMarkRead(n.id)}
-                                  className="text-[10px] text-blue-500 hover:underline cursor-pointer"
+                                  className="text-[10px] text-blue-500 hover:underline cursor-pointer flex-shrink-0"
                                 >
                                   Mark read
                                 </button>
@@ -184,12 +215,18 @@ export default function Navbar() {
                             <p className="text-theme-sub text-[11px] leading-relaxed">
                               {n.message}
                             </p>
+                            <span className="text-[9px] text-theme-muted font-mono block pt-0.5">
+                              {n.created_at ? new Date(n.created_at).toLocaleDateString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Live'}
+                            </span>
                           </div>
                         ))
                       ) : (
-                        <p className="text-xs text-theme-muted py-6 text-center">
-                          No notifications yet
-                        </p>
+                        <div className="py-8 text-center space-y-1">
+                          <Bell size={20} className="mx-auto text-theme-muted opacity-40" />
+                          <p className="text-xs text-theme-muted">
+                            No notifications yet
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>

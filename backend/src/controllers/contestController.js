@@ -306,6 +306,24 @@ const createContest = async (req, res) => {
       .single();
 
     if (error) return res.status(500).json({ success: false, error: error.message });
+
+    // Automatically notify all registered users about the new contest
+    try {
+      const { data: allUsers } = await supabase.from('users').select('id');
+      if (allUsers && allUsers.length > 0) {
+        const notifs = allUsers.map((u) => ({
+          user_id: u.id,
+          title: `🏆 New Contest: ${title}`,
+          message: `A new contest "${title}" (${duration} mins) has been scheduled! Starts ${new Date(startTime).toLocaleString('en-IN')}. Register now!`,
+          type: 'contest',
+          is_read: false,
+        }));
+        await supabase.from('notifications').insert(notifs);
+      }
+    } catch (notifErr) {
+      console.warn('Failed to broadcast contest notification:', notifErr.message);
+    }
+
     return res.status(201).json({ success: true, data: newContest });
   }
 

@@ -29,6 +29,8 @@ import {
 import { getContest, getContestLeaderboard, registerForContest } from '../services/contestService';
 import { useAuth } from '../context/AuthContext';
 
+import api from '../services/api';
+
 export default function ContestDetailPage() {
   const { id } = useParams();
   const { user, isAuthenticated } = useAuth();
@@ -38,6 +40,12 @@ export default function ContestDetailPage() {
   const [registered, setRegistered] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [alertMsg, setAlertMsg] = useState(null);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -77,15 +85,21 @@ export default function ContestDetailPage() {
     }
   };
 
-  const handleExportExcel = () => {
-    // Triggers direct Excel CSV download from backend endpoint
-    const url = `/api/contests/${id}/export`;
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `${(contest?.title || 'Contest').replace(/\s+/g, '_')}_Results.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleExportExcel = async () => {
+    try {
+      const res = await api.get(`/contests/${id}/export`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${(contest?.title || 'Contest').replace(/\s+/g, '_')}_Results.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setAlertMsg('Failed to export contest results.');
+    }
   };
 
   if (loading) {
