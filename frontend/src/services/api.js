@@ -32,7 +32,7 @@ if (rawBaseUrl.startsWith('http') && !rawBaseUrl.endsWith('/api')) {
 
 const api = axios.create({
   baseURL: rawBaseUrl,
-  timeout: 30000, // 30 second timeout
+  timeout: 60000, // 60 second timeout for server cold starts
   headers: {
     'Content-Type': 'application/json',
   },
@@ -56,9 +56,15 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      error.message = 'The server is waking up. Please try clicking again in a few moments.';
+    }
+
     const isAuthRoute =
       error.config?.url?.includes('/auth/login') ||
       error.config?.url?.includes('/auth/register') ||
+      error.config?.url?.includes('/auth/send-otp') ||
+      error.config?.url?.includes('/auth/verify-otp') ||
       error.config?.url?.includes('/auth/demo-login');
 
     if (error.response?.status === 401 && !isAuthRoute) {

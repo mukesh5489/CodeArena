@@ -12,23 +12,24 @@
 const nodemailer = require('nodemailer');
 const config = require('../config/app');
 
-// Create reusable transporter object using Gmail SMTP with explicit port 587
+// Create reusable transporter object using Gmail SMTP with connection pooling & fast timeouts
 let transporter = null;
 
 function createTransporter() {
-  const user = (config.smtpUser || '').replace(/\s+/g, '');
-  const pass = (config.smtpPass || '').replace(/\s+/g, '');
+  const user = (config.smtpUser || 'saimukesh363@gmail.com').replace(/\s+/g, '');
+  const pass = (config.smtpPass || 'ehttjkmxvqijovbf').replace(/\s+/g, '');
 
   if (!user || !pass) return null;
 
   return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // STARTTLS
+    service: 'gmail',
     auth: { user, pass },
-    tls: {
-      rejectUnauthorized: false,
-    },
+    pool: true,
+    maxConnections: 3,
+    maxMessages: 50,
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
   });
 }
 
@@ -39,19 +40,23 @@ transporter = createTransporter();
  */
 async function sendMail({ to, subject, html, text }) {
   if (!transporter) {
+    transporter = createTransporter();
+  }
+
+  if (!transporter) {
     console.log(`\n📧 [EMAIL SIMULATED - No SMTP configured] To: ${to} | Subject: "${subject}"`);
     return { success: true, simulated: true };
   }
 
   try {
     const info = await transporter.sendMail({
-      from: `"CodeArena" <${(config.smtpUser || '').replace(/\s+/g, '')}>`,
+      from: `"CodeArena" <${(config.smtpUser || 'saimukesh363@gmail.com').replace(/\s+/g, '')}>`,
       to,
       subject,
       text: text || subject,
       html,
     });
-    console.log(`✅ Email sent to ${to}: ${info.messageId}`);
+    console.log(`✅ Email delivered to ${to}: ${info.messageId}`);
     return { success: true, messageId: info.messageId };
   } catch (err) {
     console.error(`❌ Email dispatch error to ${to}:`, err.message);
@@ -63,7 +68,7 @@ async function sendMail({ to, subject, html, text }) {
  * Send a 4-digit OTP verification email to a new registrant
  */
 async function sendOtpEmail({ to, name, otp }) {
-  const subject = `${otp} — Your CodeArena Verification Code`;
+  const subject = `${otp} is your CodeArena verification code`;
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; background-color: #0a0f1e; color: #f1f5f9; padding: 36px; border-radius: 16px; border: 1px solid #1e2d4a;">
       <div style="text-align: center; margin-bottom: 28px;">
@@ -72,18 +77,18 @@ async function sendOtpEmail({ to, name, otp }) {
       </div>
 
       <div style="background-color: #111827; border-radius: 12px; padding: 28px; border: 1px solid #1e2d4a; text-align: center;">
-        <p style="color: #94a3b8; font-size: 14px; margin: 0 0 8px 0;">Hi <strong style="color:#f1f5f9;">${name}</strong>, use this code to verify your email</p>
+        <p style="color: #94a3b8; font-size: 14px; margin: 0 0 8px 0;">Hi <strong style="color:#f1f5f9;">${name}</strong>, enter this code to verify your account:</p>
 
-        <div style="display: inline-block; margin: 20px auto; background: linear-gradient(135deg, #1e3a8a, #2563eb); border-radius: 12px; padding: 20px 40px; letter-spacing: 12px;">
-          <span style="font-size: 40px; font-weight: 900; color: #ffffff; font-family: 'Courier New', monospace;">${otp}</span>
+        <div style="display: inline-block; margin: 20px auto; background: linear-gradient(135deg, #1e3a8a, #2563eb); border-radius: 12px; padding: 18px 36px; letter-spacing: 12px;">
+          <span style="font-size: 38px; font-weight: 900; color: #ffffff; font-family: 'Courier New', monospace;">${otp}</span>
         </div>
 
-        <p style="color: #64748b; font-size: 12px; margin: 16px 0 0 0;">This code expires in <strong style="color:#f59e0b;">10 minutes</strong>. Don't share it with anyone.</p>
+        <p style="color: #64748b; font-size: 12px; margin: 16px 0 0 0;">This code expires in <strong style="color:#f59e0b;">10 minutes</strong>. Do not share it with anyone.</p>
       </div>
 
       <p style="text-align: center; color: #475569; font-size: 12px; margin-top: 24px;">
-        If you didn't request this, you can safely ignore this email.<br/>
-        © CodeArena Platform
+        If you didn't request this email, please ignore it.<br/>
+        © CodeArena
       </p>
     </div>
   `;
