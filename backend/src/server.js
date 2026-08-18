@@ -36,11 +36,17 @@ const app = express();
 app.use(helmet());
 
 // ─── CORS ──────────────────────────────────────────────────────────────────────
-// Only allow requests coming from our React frontend
+// Allow requests from our frontend(s) – supports comma-separated origins in FRONTEND_URL
+const allowedOrigins = config.frontendUrl.split(',').map((o) => o.trim());
 app.use(
   cors({
-    origin: config.frontendUrl,
-    credentials: true, // needed later for cookies / JWT auth
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
+    credentials: true, // needed for cookies / JWT auth
   })
 );
 
