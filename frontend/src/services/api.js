@@ -10,10 +10,28 @@
 
 import axios from 'axios';
 
+// Auto-resolve base URL:
+// 1. Env variable VITE_API_BASE_URL if set
+// 2. In production (e.g. Vercel): default to the live Render backend
+// 3. In local development: use '/api' (proxied by Vite)
+let rawBaseUrl = import.meta.env.VITE_API_BASE_URL || '';
+if (!rawBaseUrl && import.meta.env.PROD) {
+  rawBaseUrl = 'https://codearena-api-77b3.onrender.com/api';
+}
+if (!rawBaseUrl) {
+  rawBaseUrl = '/api';
+}
+
+// Clean up trailing slashes
+rawBaseUrl = rawBaseUrl.trim().replace(/\/+$/, '');
+
+// Ensure /api is at the end if it's an absolute URL and missing /api
+if (rawBaseUrl.startsWith('http') && !rawBaseUrl.endsWith('/api')) {
+  rawBaseUrl += '/api';
+}
+
 const api = axios.create({
-  // In development, Vite proxies /api → http://localhost:5000
-  // In production, set VITE_API_BASE_URL to your Render backend URL (e.g. https://codearena-xxxx.onrender.com/api)
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: rawBaseUrl,
   timeout: 30000, // 30 second timeout
   headers: {
     'Content-Type': 'application/json',

@@ -104,6 +104,16 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/users',         userRoutes);
 app.use('/api/admin',         adminRoutes);
 
+// Direct aliases (in case requests arrive without /api prefix)
+app.use('/health',            healthRoutes);
+app.use('/auth',              authRoutes);
+app.use('/contests',          contestRoutes);
+app.use('/problems',          problemRoutes);
+app.use('/submissions',       submissionRoutes);
+app.use('/notifications',     notificationRoutes);
+app.use('/users',             userRoutes);
+app.use('/admin',             adminRoutes);
+
 // Root route – helpful when someone opens the backend URL in a browser
 app.get('/', (req, res) => {
   res.json({
